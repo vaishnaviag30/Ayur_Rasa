@@ -1,5 +1,7 @@
 "use client";
 
+import type React from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   FiArrowLeft,
@@ -15,7 +17,7 @@ import {
   FiBarChart2,
   FiEdit,
 } from "react-icons/fi";
-import { useState } from "react";
+import { patientApi } from "../lib/api";
 
 type EditablePatientFields =
   | "weight"
@@ -34,31 +36,117 @@ type EditablePatientFields =
 
 export default function AnshBireProfile() {
   const router = useRouter();
+  const [patientId, setPatientId] = useState<string | null>(null);
 
-  // Doctor-focused patient data (state for editing)
   const [patient, setPatient] = useState({
-    name: "Ansh Bire",
-    age: 32,
+    name: "Loading...",
+    age: 0,
     gender: "Male",
-    height: 175, // cm
-    weight: 70, // kg
-    bmi: 22.8, // weight / (height/100)^2
-    dietaryHabits: "Vegetarian, occasional dairy",
-    mealFrequency: "3 main meals + 1 snack",
-    bowelMovements: "Once daily, slightly irregular",
-    waterIntake: "2.5 L/day",
-    physicalActivity: "30 min yoga + 20 min walk daily",
-    stressLevel: "Moderate",
-    adherence: 78, // % adherence
-    totalAppointments: 5,
-    heartRate: 72, // bpm
-    bloodPressure: "120/80", // mmHg
-    bodyTemperature: 36.8, // °C
-    respiratoryRate: 16, // breaths/min
-    oxygenSaturation: 98, // SpO₂ %
-    notes:
-      "Patient reports occasional bloating and mild lethargy in mornings. Recommended warm, light meals, consistent hydration, and regular physical activity. Follow-up scheduled next month.",
+    height: 0,
+    weight: 0,
+    bmi: 0,
+    dietaryHabits: "",
+    mealFrequency: "",
+    bowelMovements: "",
+    waterIntake: "",
+    physicalActivity: "",
+    stressLevel: "",
+    adherence: 0,
+    totalAppointments: 0,
+    heartRate: 0,
+    bloodPressure: "",
+    bodyTemperature: 0,
+    respiratoryRate: 0,
+    oxygenSaturation: 0,
+    notes: "",
   });
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        router.replace("/login");
+      }
+      const params = new URLSearchParams(window.location.search);
+      setPatientId(params.get("patientId"));
+    }
+  }, [router]);
+
+  useEffect(() => {
+    if (!patientId) {
+      setError("No patient selected.");
+      setIsLoading(false);
+      return;
+    }
+
+    const fetchPatient = async () => {
+      const response = await patientApi.getProfile(patientId);
+      if (!response.success) {
+        setError(response.message || "Failed to load patient details.");
+        setIsLoading(false);
+        return;
+      }
+
+      type LoadedPatient = {
+        user?: { name?: string };
+        age?: number;
+        gender?: string;
+        height?: number;
+        weight?: number;
+        bmi?: number;
+        dietaryHabits?: string;
+        mealFrequency?: string;
+        bowelMovements?: string;
+        waterIntake?: string;
+        physicalActivity?: string;
+        stressLevel?: string;
+        adherence?: number;
+        assessments?: unknown[];
+        heartRate?: number;
+        bloodPressure?: string;
+        bodyTemperature?: number;
+        respiratoryRate?: number;
+        oxygenSaturation?: number;
+        notes?: string;
+      };
+
+      const loadedPatient = (response.data as { patient?: LoadedPatient }).patient;
+      if (!loadedPatient) {
+        setError("Patient not found.");
+        setIsLoading(false);
+        return;
+      }
+
+      setPatient({
+        name: loadedPatient.user?.name || "Unknown",
+        age: loadedPatient.age || 0,
+        gender: loadedPatient.gender || "Male",
+        height: loadedPatient.height || 0,
+        weight: loadedPatient.weight || 0,
+        bmi: loadedPatient.bmi || 0,
+        dietaryHabits: loadedPatient.dietaryHabits || "",
+        mealFrequency: loadedPatient.mealFrequency || "",
+        bowelMovements: loadedPatient.bowelMovements || "",
+        waterIntake: loadedPatient.waterIntake || "",
+        physicalActivity: loadedPatient.physicalActivity || "",
+        stressLevel: loadedPatient.stressLevel || "",
+        adherence: loadedPatient.adherence || 0,
+        totalAppointments: loadedPatient.assessments?.length || 0,
+        heartRate: loadedPatient.heartRate || 0,
+        bloodPressure: loadedPatient.bloodPressure || "",
+        bodyTemperature: loadedPatient.bodyTemperature || 0,
+        respiratoryRate: loadedPatient.respiratoryRate || 0,
+        oxygenSaturation: loadedPatient.oxygenSaturation || 0,
+        notes: loadedPatient.notes || "",
+      });
+      setIsLoading(false);
+    };
+
+    fetchPatient();
+  }, [patientId]);
+
 
   // Color-coded BMI for quick assessment
   const bmiColor =
@@ -77,6 +165,25 @@ export default function AnshBireProfile() {
       setPatient((prev) => ({ ...prev, [field]: newValue }));
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-gray-600">Loading patient details...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="bg-white p-8 rounded-3xl shadow-lg text-center max-w-md">
+          <p className="text-red-600 mb-4">{error}</p>
+          <button onClick={() => router.push('/Dashboard')} className="px-4 py-2 bg-green-600 text-white rounded-lg">Back to Dashboard</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">

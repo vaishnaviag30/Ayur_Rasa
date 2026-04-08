@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { TbMessageChatbot } from "react-icons/tb";
 // Define constants for the Gemini API
-const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+// const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY; // Moved to server-side
 // const modelName = "gemini-3-pro-preview"; // Standard model for text generation
-const apiUrl = `https://mind.newdev-dec.workers.dev/say`;
+const apiUrl = `/api/chat`;
 
 // --- Type Definitions ---
 
@@ -54,19 +54,9 @@ const callGeminiApi = async (conversation: Message[]): Promise<string> => {
     const maxRetries = 5;
     const baseDelay = 1000;
 
-    // const contents: ApiContent[] = conversation.map((msg) => ({
-    // role: msg.role === "bot" ? "model" : "user",
-    // parts: [{ text: msg.text }],
-    // }));
-
-    // const payload = {
-    // contents,
-    // systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-    // };
-
     let lastError: unknown = null;
 
-    for (let i = 0; i < 1; i++) {
+    for (let i = 0; i < maxRetries; i++) {
         const delay = baseDelay * 2 ** i;
         try {
             const response = await fetch(apiUrl, {

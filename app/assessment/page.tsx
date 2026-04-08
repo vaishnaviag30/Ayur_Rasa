@@ -1,9 +1,9 @@
 "use client";
 
-import React from "react";
-import { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "../components/Navbar";
+import { getAuthToken, getAuthUser, assessmentApi, patientApi } from "../lib/api";
 // Removed: import { motion } from "framer-motion";
 
 const quizQuestions = [
@@ -101,14 +101,82 @@ const quizQuestions = [
 
 export default function AssessmentPage() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [patientId, setPatientId] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const initialize = async () => {
+      const token = getAuthToken();
+      const user = getAuthUser();
+
+      if (!token) {
+        router.replace('/login');
+        return;
+      }
+
+      if (user?.role === 'DOCTOR') {
+        router.replace('/Dashboard');
+        return;
+      }
+
+      const profileResponse = await patientApi.getMyProfile();
+      if (profileResponse.success && profileResponse.data?.patient) {
+        const patient = profileResponse.data.patient as { id: string; assessments?: unknown[] };
+        setPatientId(patient.id);
+
+        type SavedAssessment = {
+        createdAt: string;
+        vataScore?: number;
+        pittaScore?: number;
+        kaphaScore?: number;
+        primaryDosha?: string;
+      };
+
+      const assessments = Array.isArray(patient.assessments)
+        ? (patient.assessments as SavedAssessment[])
+        : [];
+
+      if (assessments.length > 0) {
+        const latestAssessment = [...assessments].sort(
+          (a: SavedAssessment, b: SavedAssessment) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )[0];
+
+          const vataScore = latestAssessment.vataScore ?? 0;
+          const pittaScore = latestAssessment.pittaScore ?? 0;
+          const kaphaScore = latestAssessment.kaphaScore ?? 0;
+          const primaryDosha =
+            latestAssessment.primaryDosha ||
+            Object.entries({ vataScore, pittaScore, kaphaScore }).sort(
+              (a, b) => b[1] - a[1]
+            )[0]?.[0]?.replace('Score', '') ||
+            'Vata';
+
+          router.replace(
+            `/assessment-result?vata=${vataScore}&pitta=${pittaScore}&kapha=${kaphaScore}&primary=${encodeURIComponent(
+              primaryDosha
+            )}`
+          );
+          return;
+        }
+      }
+
+      setIsLoading(false);
+    };
+
+    initialize();
+  }, [router]);
 
   const handleAnswer = (id: string, value: string) => {
     setAnswers((prev) => ({ ...prev, [id]: value }));
   };
 
-  const calculateDosha = () => {
-    // eslint: prefer-const -> use const because we don't reassign `counts`
+  const calculateDosha = async () => {
     const counts = { vata: 0, pitta: 0, kapha: 0 };
     const answeredQuestions = Object.values(answers).length;
 
@@ -124,11 +192,44 @@ export default function AssessmentPage() {
     const vataPercent = Math.round((counts.vata / answeredQuestions) * 100);
     const pittaPercent = Math.round((counts.pitta / answeredQuestions) * 100);
     const kaphaPercent = Math.round((counts.kapha / answeredQuestions) * 100);
+    const primaryDosha =
+      Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "vata";
+
+    if (!patientId) {
+      alert("Unable to identify your patient profile. Please refresh the page.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitError("");
+
+    const response = await assessmentApi.submit({
+      patientId,
+      answers,
+      vataScore: vataPercent,
+      pittaScore: pittaPercent,
+      kaphaScore: kaphaPercent,
+    });
+
+    setIsSubmitting(false);
+
+    if (!response.success) {
+      setSubmitError(response.message || "Failed to submit assessment.");
+      return;
+    }
 
     router.push(
-      `/assessment-result?vata=${vataPercent}&pitta=${pittaPercent}&kapha=${kaphaPercent}`
+      `/assessment-result?vata=${vataPercent}&pitta=${pittaPercent}&kapha=${kaphaPercent}&primary=${primaryDosha}`
     );
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-blue-50">
+        <p className="text-gray-600">Loading your assessment...</p>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -209,13 +310,21 @@ export default function AssessmentPage() {
             ))}
           </div>
 
+          {submitError && (
+            <div className="mb-4 rounded-2xl bg-red-50 border border-red-200 p-4 text-red-700 text-center">
+              {submitError}
+            </div>
+          )}
+
           <div className="flex justify-center mt-10">
             <button
               onClick={calculateDosha}
-              className="bg-green-600 text-white font-bold text-lg px-10 py-4 rounded-full shadow-lg hover:scale-[1.05] active:scale-[0.95] transition-transform duration-300"
-              // Removed framer-motion props: whileHover whileTap transition
+              disabled={isSubmitting}
+              className={`bg-green-600 text-white font-bold text-lg px-10 py-4 rounded-full shadow-lg transition-transform duration-300 ${
+                isSubmitting ? "opacity-60 cursor-not-allowed" : "hover:scale-[1.05] active:scale-[0.95]"
+              }`}
             >
-              Calculate Your Dosha
+              {isSubmitting ? "Submitting assessment..." : "Calculate Your Dosha"}
             </button>
           </div>
         </div>

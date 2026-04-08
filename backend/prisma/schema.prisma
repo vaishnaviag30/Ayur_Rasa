@@ -1,0 +1,226 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// User model - for doctors and patients
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  password  String    // hashed password
+  name      String
+  role      String    @default("PATIENT")
+  phone     String?
+  profilePicture String?
+  
+  // Relationships
+  doctorProfile Doctor?
+  patientProfile Patient?
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// Doctor profile
+model Doctor {
+  id        String    @id @default(cuid())
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  licenseNumber String
+  specialization String?
+  clinicName String?
+  
+  patients Patient[] // Patients assigned to this doctor
+  dietPlans DietPlan[] // Diet plans created by this doctor
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// Patient profile
+model Patient {
+  id        String    @id @default(cuid())
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Basic info
+  age       Int
+  gender    String    // Male, Female, Other
+  height    Float     // in cm
+  weight    Float     // in kg
+  bmi       Float?    // auto calculated
+  address   String?
+  bloodPressure String?
+  pulseRate Float?
+  
+  // Ayurvedic assessment
+  dosha     String    // Vata, Pitta, Kapha
+  prakriti  String?
+  vikriti   String?
+  constitution String?
+  doshaPercentage String? // JSON string: {vata: 30, pitta: 40, kapha: 30}
+  
+  // Habits
+  dietaryHabits String?
+  mealFrequency String?
+  bowelMovements String?
+  waterIntake String?
+  physicalActivity String?
+  stressLevel String?
+  
+  // Medical information
+  medicalConditions String?
+  allergies String?
+  currentMedications String?
+  lastConsultation String?
+  bmiHistory String?
+
+  // Doctor assignment
+  doctorId String?
+  doctor   Doctor?   @relation(fields: [doctorId], references: [id], onDelete: SetNull)
+
+  // Relationships
+  assessments Assessment[]
+  dietPlans   DietPlan[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// Dosha Assessment
+model Assessment {
+  id        String    @id @default(cuid())
+  patientId String
+  patient   Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
+  // Assessment results
+  vataScore Float
+  pittaScore Float
+  kaphaScore Float
+  primaryDosha String
+  
+  // Assessment answers
+  answers   String    // Store all answers as JSON string
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// Food database
+model Food {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  
+  // Nutritional values (per 100g)
+  calories  Float
+  protein   Float
+  carbs     Float
+  fats      Float
+  fiber     Float?
+  
+  // Ayurvedic properties
+  vataEffect String?    // +, -, =
+  pittaEffect String?   // +, -, =
+  kaphaEffect String?   // +, -, =
+  
+  // Additional properties
+  mealTypes String      // Breakfast, Lunch, Dinner (comma separated)
+  taste     String?     // Sweet, Sour, Salty, Pungent, Bitter, Astringent
+  digestion String?     // Easy, Medium, Difficult
+  temperature String?   // Hot, Warm, Cool, Cold
+  
+  // Meals using this food
+  mealFoods MealFood[]
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// Diet Plan
+model DietPlan {
+  id        String    @id @default(cuid())
+  patientId String
+  patient   Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
+  doctorId  String?
+  doctor    Doctor?   @relation(fields: [doctorId], references: [id], onDelete: SetNull)
+  
+  // Plan details
+  startDate DateTime
+  endDate   DateTime
+  weekNumber Int       @default(1) // Which week of plan this is
+  
+  // Meals
+  meals     Meal[]
+  
+  // Recommendations
+  recommendations String?
+  notes     String?
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  @@index([patientId])
+  @@index([doctorId])
+}
+
+// Meal (Breakfast/Lunch/Dinner)
+model Meal {
+  id        String    @id @default(cuid())
+  planId    String
+  plan      DietPlan  @relation(fields: [planId], references: [id], onDelete: Cascade)
+  
+  mealType  String    // Breakfast, Lunch, Dinner, Snack
+  dayOfWeek Int       // 0 = Monday, 6 = Sunday
+  time      String    // HH:mm format
+  
+  // Foods in meal
+  foods     MealFood[]
+  
+  totalCalories Float?
+  totalProtein  Float?
+  totalCarbs    Float?
+  totalFats     Float?
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// Junction table: Many foods can be in many meals
+model MealFood {
+  id        String    @id @default(cuid())
+  mealId    String
+  meal      Meal      @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  
+  foodId    String
+  food      Food      @relation(fields: [foodId], references: [id], onDelete: Cascade)
+  
+  portion   Float     // in grams
+  calories  Float
+  protein   Float
+  carbs     Float
+  fats      Float
+  
+  @@unique([mealId, foodId])
+}
+
+// Ayurvedic Remedies/Recommendations
+model Remedy {
+  id        String    @id @default(cuid())
+  name      String
+  description String
+  dosha     String    // Which dosha it helps
+  ingredients String   // Comma separated
+  preparation String
+  benefits  String
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}

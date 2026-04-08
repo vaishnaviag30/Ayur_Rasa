@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Pie } from "react-chartjs-2";
+import { patientApi } from "../lib/api";
 import {
   Chart as ChartJS,
   ArcElement,
@@ -20,6 +22,19 @@ const doshaDetails: Record<string, { text: string }> = {
   Kapha: {
     text: `Kapha is formed by the combination of earth and water. It provides structure, stability, and lubrication to the body. Kapha types are naturally calm, compassionate, and steady but may experience lethargy or attachment when imbalanced.`,
   },
+};
+
+const normalizeDoshaName = (value: string | undefined) => {
+  if (!value) return "Vata";
+  const normalized = value.trim().toLowerCase();
+  if (normalized.startsWith("vata")) return "Vata";
+  if (normalized.startsWith("pitta")) return "Pitta";
+  if (normalized.startsWith("kapha")) return "Kapha";
+  return "Vata";
+};
+
+const getDoshaText = (dosha: string) => {
+  return doshaDetails[normalizeDoshaName(dosha)]?.text || doshaDetails.Vata.text;
 };
 
 function Accordion({
@@ -73,20 +88,155 @@ function Accordion({
   );
 }
 
-export default function AssessmentResultClient() {
-  // Sample data for demonstration
-  const vata = 35;
-  const pitta = 25;
-  const kapha = 40;
+type SavedAssessment = {
+  createdAt: string;
+  vataScore?: number;
+  pittaScore?: number;
+  kaphaScore?: number;
+  primaryDosha?: string;
+};
 
+export default function AssessmentResultClient() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [assessmentResult, setAssessmentResult] = useState<{
+    vata: number;
+    pitta: number;
+    kapha: number;
+    primary: string;
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const loadResult = async () => {
+      const hasQueryData =
+        searchParams &&
+        searchParams.has("vata") &&
+        searchParams.has("pitta") &&
+        searchParams.has("kapha");
+
+      if (hasQueryData && searchParams) {
+        const vata = Number(searchParams.get("vata") || 0);
+        const pitta = Number(searchParams.get("pitta") || 0);
+        const kapha = Number(searchParams.get("kapha") || 0);
+        const rawPrimary = searchParams.get("primary");
+        const primary =
+          typeof rawPrimary === "string"
+            ? rawPrimary
+            : ([
+                ["Vata", vata],
+                ["Pitta", pitta],
+                ["Kapha", kapha],
+              ] as [string, number][]).sort((a, b) => b[1] - a[1])[0]?.[0] ||
+              "Vata";
+
+        setAssessmentResult({ vata, pitta, kapha, primary });
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const response = await patientApi.getMyProfile();
+        if (response.success && response.data?.patient) {
+          type PatientRecord = {
+            assessments?: unknown[];
+            doshaPercentage?: string;
+            dosha?: string;
+          };
+
+          const patient = response.data.patient as PatientRecord;
+          const assessments = Array.isArray(patient.assessments)
+            ? (patient.assessments as SavedAssessment[])
+            : [];
+
+          if (assessments.length > 0) {
+            const latestAssessment = [...assessments].sort(
+              (a, b) =>
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            )[0];
+
+            setAssessmentResult({
+              vata: latestAssessment.vataScore ?? 0,
+              pitta: latestAssessment.pittaScore ?? 0,
+              kapha: latestAssessment.kaphaScore ?? 0,
+              primary: latestAssessment.primaryDosha || "Vata",
+            });
+            setIsLoading(false);
+            return;
+          }
+
+          if (patient.doshaPercentage) {
+            try {
+              const parsed = JSON.parse(patient.doshaPercentage);
+              setAssessmentResult({
+                vata: Number(parsed.vata) || 0,
+                pitta: Number(parsed.pitta) || 0,
+                kapha: Number(parsed.kapha) || 0,
+                primary: patient.dosha || "Vata",
+              });
+              setIsLoading(false);
+              return;
+            } catch {
+              // ignore parse failures and fall through to error state
+            }
+          }
+
+          setError(
+            "No assessment result found. Please complete the dosha quiz to see your result."
+          );
+        } else {
+          setError(response.message || "Unable to load assessment results.");
+        }
+      } catch {
+        setError("Unable to load assessment results.");
+      }
+
+      setIsLoading(false);
+    };
+
+    loadResult();
+  }, [searchParams]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <p className="text-gray-600">Loading assessment result...</p>
+      </div>
+    );
+  }
+
+  if (!assessmentResult) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center px-4 py-12">
+        <div className="max-w-xl w-full rounded-3xl border border-red-200 bg-red-50 p-8 text-center">
+          <p className="text-lg font-semibold text-red-700 mb-4">No saved assessment result found.</p>
+          {error ? (
+            <p className="text-gray-600 mb-6">{error}</p>
+          ) : (
+            <p className="text-gray-600 mb-6">
+              Please complete the Dosha Assessment to view your personalized result.
+            </p>
+          )}
+          <button
+            onClick={() => router.push('/assessment')}
+            className="rounded-full bg-green-600 px-8 py-3 text-white font-semibold hover:bg-green-700 transition"
+          >
+            Take Dosha Assessment
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const { vata, pitta, kapha, primary } = assessmentResult;
   const doshaResult = [
     { name: "Vata", value: vata },
     { name: "Pitta", value: pitta },
     { name: "Kapha", value: kapha },
   ].sort((a, b) => b.value - a.value);
-
-  const primaryDosha = doshaResult[0].name;
-  const secondaryDosha = doshaResult[1].name;
+  const primaryDosha = normalizeDoshaName(primary);
+  const secondaryDosha = normalizeDoshaName(doshaResult[1].name);
 
   const doshaSymbol =
     primaryDosha === "Vata" ? (
@@ -177,9 +327,17 @@ export default function AssessmentResultClient() {
             </h2>
           </div>
 
-          <button className="px-8 py-3 border border-emerald-600 text-emerald-600 rounded-lg font-medium hover:bg-emerald-50 transition-colors">
-            Save Result as PDF
-          </button>
+          <div className="flex flex-col sm:flex-row justify-center gap-4">
+            <button className="px-8 py-3 border border-emerald-600 text-emerald-600 rounded-lg font-medium hover:bg-emerald-50 transition-colors">
+              Save Result as PDF
+            </button>
+            <button
+              onClick={() => router.push('/diet-plan')}
+              className="px-8 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
+            >
+              View Weekly Diet Plan
+            </button>
+          </div>
         </div>
 
         {/* Pie Chart */}
@@ -218,12 +376,12 @@ export default function AssessmentResultClient() {
           </h2>
           <Accordion
             title={`You are predominantly ${primaryDosha}`}
-            content={doshaDetails[primaryDosha].text}
+            content={getDoshaText(primaryDosha)}
             defaultOpen={true}
           />
           <Accordion
             title={`Your secondary dosha is ${secondaryDosha}`}
-            content={doshaDetails[secondaryDosha].text}
+            content={getDoshaText(secondaryDosha)}
             defaultOpen={false}
           />
         </div>
